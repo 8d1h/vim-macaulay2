@@ -8,10 +8,10 @@ syn keyword todo contained TODO FIXME XXX
 syn region comment start=+-\*+ end=+\*-+ contains=todo,@Spell
 syn match comment "--.*$" contains=todo,@Spell
 
-" string
+" string: special characters
 syn match special contained "\\[\\abfnrtv\'\"]\|\\\d\{,3}"
-" special characters
-syn region string start=+"+ end=+"+ skip=+\\\\\|\\"+ contains=special,@spell
+syn region string1 start=+"+ end=+"+ skip=+\\|\"+ contains=special,@spell
+syn region string2 start="\/\/\/" end="\(\/\/\)*\/\/\/" skip="\/\?\/\?[^/]\|\(\/\/\)*\/\/\/\/[^/]" contains=@spell
 
 " number: integers and floats
 syn match integer "\<\d\+\>"
@@ -32,7 +32,8 @@ hi def link todo Todo
 hi def link control Conditional
 hi def link constant Constant
 hi def link comment Comment
-hi def link string String
+hi def link string1 String
+hi def link string2 String
 hi def link special Special
 hi def link integer Number
 hi def link float Float
