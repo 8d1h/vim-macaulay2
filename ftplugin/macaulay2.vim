@@ -5,12 +5,13 @@ let b:did_ftplugin = 1
 
 " omni completion
 setlocal omnifunc=syntaxcomplete#Complete
-let g:omni_syntax_group_include_macaulay2 = 'M2NameType,M2NameFunction,M2Other'
+let g:omni_syntax_group_include_macaulay2 = 'M2NameType,M2NameFunction,M2NameSymbol,M2Other'
 
 " lower h yanks the word to the register "h then calls the help function
-nnoremap <buffer> <localleader>h "hyiw:call macaulay2#help(@h)<cr>
+nnoremap <buffer> <silent> <localleader>h "hyiw:call macaulay2#help(@h,b:macaulay2_env)<cr>
+vnoremap <buffer> <silent> <localleader>h "hy:call macaulay2#help(@h,b:macaulay2_env)<cr>
 " upper H requires user input
-nnoremap <buffer> <localleader>H :call macaulay2#help(input('Help for: '))<cr>
+nnoremap <buffer> <silent> <localleader>H :call macaulay2#help(input('Help for: '),b:macaulay2_env)<cr>
 " r runs the script
 nnoremap <buffer> <localleader>r :w !M2 --script %<cr>
 " lower s opens an M2 shell and preloads the script
@@ -23,7 +24,7 @@ else
     nnoremap <buffer> <silent> <localleader>S :vert rightb term M2 <cr>
 endif
 
-function! macaulay2#help(name)
+function! macaulay2#help(name,env)
     if &ft == "macaulay2"
         let wnr = bufwinnr("M2help")
         let bnr = bufnr("M2help")
@@ -33,21 +34,26 @@ function! macaulay2#help(name)
             exec bnr "sb"
         else
             new
-            setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile nowrap filetype=M2help nonumber norelativenumber 
+            setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile nowrap nonumber norelativenumber 
             file M2help
         endif
     endif
+    let b:macaulay2_env = a:env
+    setlocal filetype=M2help
+    let preamble = 'try loadPackage \"'.join(split(a:env,','), '\";try loadPackage \"').'\";'
     if empty(substitute(a:name,'\s\|\t','','g'))
         let str = '<< help()'
     elseif match(a:name, ',') == -1
         let str = '<< help \"'.a:name.'\"'
+    " commands like help(ideal,List)
     else
         let str = '<< help('.a:name.')'
     endif
+    " check bufname before deletion!
     if bufname() == "M2help"
         set modifiable
         %delete
-        silent! execute '0$read !echo "'.str.'" > /tmp/M2help; M2 --script /tmp/M2help;'
+        silent! execute '0$read !echo "'.preamble.str.'" > /tmp/M2help; M2 --script /tmp/M2help;'
         setlocal nomodifiable
         0
     endif
@@ -55,6 +61,33 @@ function! macaulay2#help(name)
         exec ":AirlineRefresh"
     endif
 endfunction
+
+function! macaulay2#env_update()
+    if &filetype == "macaulay2" 
+        if exists("b:macaulay2_env")
+            let old_env = b:macaulay2_env
+        endif
+        let b:macaulay2_env = ""
+        for line in getline(1, '$')
+            let pkg = matchstr(line,'^\(\(--\)\@!.\)*\<\%(load\|needs\)Package.*\"\zs.\+\ze\"')
+            if pkg != ""
+                let b:macaulay2_env = join(uniq(sort(split(b:macaulay2_env, ',')+[pkg])),',')
+            endif
+        endfor
+        if exists("old_env") && exists("g:loaded_syntax_completion")
+            if b:macaulay2_env != old_env
+                setf macaulay2
+                unlet g:loaded_syntax_completion
+                source $VIMRUNTIME/autoload/syntaxcomplete.vim
+            endif
+        endif
+    endif
+endfunction
+
+" init update of env
+silent call macaulay2#env_update()
+" update env each time leaving insert mode
+au TextChanged,InsertLeave *.m2 silent call macaulay2#env_update()
 
 if exists(":AirlineRefresh")
     function! AirlineM2help(...)
