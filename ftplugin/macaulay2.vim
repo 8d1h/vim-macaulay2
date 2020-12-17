@@ -40,7 +40,7 @@ function! macaulay2#help(name,env)
     endif
     let b:macaulay2_env = a:env
     setlocal filetype=M2help
-    let preamble = 'try loadPackage \"'.join(split(a:env,','), '\";try loadPackage \"').'\";'
+    let preamble = 'try needsPackage \"'.join(split(a:env,','), '\";try needsPackage \"').'\";'
     if empty(substitute(a:name,'\s\|\t','','g'))
         let str = '<< help()'
     elseif match(a:name, ',') == -1
@@ -53,13 +53,37 @@ function! macaulay2#help(name,env)
     if bufname() == "M2help"
         set modifiable
         %delete
-        silent! execute '0$read !echo "'.preamble.str.'" > /tmp/M2help; M2 --script /tmp/M2help;'
+        silent! execute '0$read !echo "'.preamble.str.'" > /tmp/vim-macaulay2; M2 --script /tmp/vim-macaulay2;'
         setlocal nomodifiable
         0
     endif
     if exists(":AirlineRefresh")
         exec ":AirlineRefresh"
     endif
+endfunction
+
+function! s:syntax_update()
+    execute '!echo "" > /tmp/vim-macaulay2;echo "" > /tmp/vim-macaulay2-syntax.vim;'
+    for pkg in split(b:macaulay2_env,',')
+        call writefile(['try(pkg = needsPackage "'.pkg.'";<< "if match(b:macaulay2_env, ''\\C'.pkg.''') != -1\nsyn keyword M2NameType";for x in pkg#"exported symbols" do ( if class value x === Type then << " " << x;);<< " .\nsyn keyword M2NameFunction";for x in pkg#"exported symbols" do ( if member(class value x,set{MethodFunction,MethodFunctionSingle,MethodFunctionBinary,MethodFunctionWithOptions}) then << " " << x;);<< " .\nsyn keyword M2NameSymbol";for x in pkg#"exported symbols" do ( if class value x === Symbol then << " " << x;);<<" .\nendif\n";);'], glob('/tmp/vim-macaulay2'),'a')
+    endfor
+    if has('nvim')
+        call jobstart('M2 --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;', {'on_exit':{j,d,e->s:syntax_reload()}})
+    else
+        let s:job=job_start('sh -c "M2 --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;"' , {'exit_cb':{j,s->s:syntax_reload()}})
+    endif
+endfunction
+
+function! s:syntax_reload()
+    setf macaulay2
+    if exists("g:loaded_syntax_completion")
+        unlet g:loaded_syntax_completion
+    endif
+    source $VIMRUNTIME/autoload/syntaxcomplete.vim
+endfunction
+
+function! macaulay2#test()
+    call s:syntax_update()
 endfunction
 
 function! macaulay2#env_update()
@@ -74,20 +98,18 @@ function! macaulay2#env_update()
                 let b:macaulay2_env = join(uniq(sort(split(b:macaulay2_env, ',')+[pkg])),',')
             endif
         endfor
-        if exists("old_env") && exists("g:loaded_syntax_completion")
+        if exists("old_env")
             if b:macaulay2_env != old_env
-                setf macaulay2
-                unlet g:loaded_syntax_completion
-                source $VIMRUNTIME/autoload/syntaxcomplete.vim
+                call s:syntax_update()
             endif
+        else
+            call s:syntax_update()
         endif
     endif
 endfunction
 
-" init update of env
-silent call macaulay2#env_update()
-" update env each time leaving insert mode
-au TextChanged,InsertLeave *.m2 silent call macaulay2#env_update()
+" update env
+au BufEnter,TextChanged,InsertLeave *.m2 silent call macaulay2#env_update()
 
 if exists(":AirlineRefresh")
     function! AirlineM2help(...)
