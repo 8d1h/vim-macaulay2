@@ -1,0 +1,66 @@
+" Quit when a syntax file was already loaded.
+if exists('b:current_syntax') | finish | endif
+
+setlocal iskeyword-=_
+setlocal iskeyword+='
+
+syn keyword M2Boolean true false
+
+syn keyword M2Keyword
+            \ @M2KEYWORDS@
+
+syn keyword M2Datatype
+            \ @M2DATATYPES@
+
+syn keyword M2Function
+            \ @M2FUNCTIONS@
+
+syn keyword M2Symbol
+            \ @M2CONSTANTS@
+
+" comment: inline and block
+syn keyword M2Todo contained TODO FIXME XXX
+syn region M2Comment start=+-\*+ end=+\*-+ contains=M2Todo,@Spell
+syn match M2Comment "--.*$" contains=M2Todo,@Spell
+
+" string: special characters
+syn match M2EscapeBackslash contained "\\\(u\x\{,3}\|.\)"
+syn match M2Escape contained "\\[\\bfnrt\"]\|\\u\x\{4}\|\\\d\{1,3}"
+syn region M2String start=+"+ end=+"+ skip=+\\|\"+ contains=M2EscapeBackslash,M2Escape,@spell
+syn match M2String "\/\{3,}"
+" it seems that this syntax is usually used for TEST commands, so maybe syntax
+" highlight is still needed
+" syn region M2String start="///" end="\(//\)*///" skip="/\=/\=/\@!\|\(//\)*/////\@!" contains=@spell
+
+" number: integers and floats
+syn match M2Integer "\<\d\+\(_\a\+\)\=\>"
+syn match M2Float "\<\d\+e-\=\d\+\>"
+syn match M2Float "\(\d\|\.\)\@<!\.\d\+\%(e-\=\d\+\)\=\>"
+syn match M2Float "\<\d\+\.\d*\%(e-\=\d\+\)\=\>"
+
+syn match M2Special "<<"
+syn match M2Special ">>"
+syn match M2Special "\^\*\*"
+
+" coefficient field
+syn match M2Ring "\<ZZ\(\/\d\+\)\=\>"
+
+if exists('b:macaulay2_env')
+source /tmp/vim-macaulay2-syntax.vim
+endif
+
+hi def link M2Todo Todo
+hi def link M2Keyword Keyword
+hi def link M2Comment Comment
+hi def link M2String String
+hi def link M2Escape Special
+hi def link M2EscapeBackslash Error
+hi def link M2Integer Number
+hi def link M2Float Float
+hi def link M2Ring Identifier
+hi def link M2Datatype Structure
+hi def link M2Function Function
+hi def link M2Symbol Constant
+hi def link M2Special Special
+
+let b:current_syntax = 'macaulay2'

@@ -3,32 +3,34 @@ if exists("b:did_ftplugin")
 endif
 let b:did_ftplugin = 1
 
-if !exists("g:M2_bin")
-    let g:M2_bin = 'M2'
+if !exists("g:M2")
+    let g:M2 = 'M2'
 endif
+
+let s:current_file=expand("<sfile>:p:h")
 
 " omni completion
 setlocal omnifunc=syntaxcomplete#Complete
-let g:omni_syntax_group_include_macaulay2 = 'M2Type,M2Function,M2Symbol,M2Other'
+let g:omni_syntax_group_include_macaulay2 = 'M2Datatype,M2Function,M2Symbol'
 
 " lower h yanks the word to the register "h then calls the help function
-nnoremap <buffer> <silent> <localleader>h "hyiw:call macaulay2#help(@h,b:macaulay2_env)<cr>
-vnoremap <buffer> <silent> <localleader>h "hy:call macaulay2#help(@h,b:macaulay2_env)<cr>
+nnoremap <buffer> <silent> <localleader>h "hyiw:call macaulay2#show_help(@h,b:macaulay2_env)<cr>
+vnoremap <buffer> <silent> <localleader>h "hy:call macaulay2#show_help(@h,b:macaulay2_env)<cr>
 " upper H requires user input
-nnoremap <buffer> <silent> <localleader>H :call macaulay2#help(input('Help for: '),b:macaulay2_env)<cr>
+nnoremap <buffer> <silent> <localleader>H :call macaulay2#show_help(input('Help for: '),b:macaulay2_env)<cr>
 " r runs the script
-nnoremap <buffer> <silent> <localleader>r :exec 'w !'.g:M2_bin.' --script %'<cr>
+nnoremap <buffer> <silent> <localleader>r :exec 'w !'.g:M2.' --script %'<cr>
 " lower s opens an M2 shell and preloads the script
 " upper S opens a clean M2 shell
 if has('nvim')
-    nnoremap <buffer> <silent> <localleader>s :w<cr>:vert rightb split \| exec 'term '.g:M2_bin.' %'<cr>a
-    nnoremap <buffer> <silent> <localleader>S :vert rightb split \| exec 'term '.g:M2_bin<cr>a
+    nnoremap <buffer> <silent> <localleader>s :w<cr>:vert rightb split \| exec 'term '.g:M2.' %'<cr>a
+    nnoremap <buffer> <silent> <localleader>S :vert rightb split \| exec 'term '.g:M2<cr>a
 else
-    nnoremap <buffer> <silent> <localleader>s :w<cr>:exec 'vert rightb term '.g:M2_bin.' %'<cr>
-    nnoremap <buffer> <silent> <localleader>S :exec 'vert rightb term '.g:M2_bin<cr>
+    nnoremap <buffer> <silent> <localleader>s :w<cr>:exec 'vert rightb term '.g:M2.' %'<cr>
+    nnoremap <buffer> <silent> <localleader>S :exec 'vert rightb term '.g:M2<cr>
 endif
 
-function! macaulay2#help(name,env)
+function! macaulay2#show_help(name,env)
     if &ft == "macaulay2"
         let wnr = bufwinnr("M2help")
         let bnr = bufnr("M2help")
@@ -44,20 +46,22 @@ function! macaulay2#help(name,env)
     endif
     let b:macaulay2_env = a:env
     setlocal filetype=M2help
-    let preamble = 'try needsPackage \"'.join(split(a:env,','), '\";try needsPackage \"').'\";'
+    let setwidth = 'printWidth = '.winwidth('%').';\n'
+    let preamble = 'try needsPackage \\ (\"'.join(split(a:env,','), '\", \"').'\");\n'
     if empty(substitute(a:name,'\s\|\t','','g'))
         let str = '<< help()'
-    elseif match(a:name, ',') == -1
+    " elseif match(a:name, ',') == -1
+    else
         let str = '<< help \"'.a:name.'\"'
     " commands like help(ideal,List)
-    else
-        let str = '<< help('.a:name.')'
+    " else
+        " let str = '<< help('.a:name.')'
     endif
     " check bufname before deletion!
     if bufname() == "M2help"
         set modifiable
         %delete
-        silent! execute '0$read !echo "'.preamble.str.'" > /tmp/vim-macaulay2; '.g:M2_bin.' --script /tmp/vim-macaulay2;'
+        silent! execute '0$read !echo "'.setwidth.preamble.str.'" > /tmp/vim-macaulay2; '.g:M2.' --script /tmp/vim-macaulay2;'
         setlocal nomodifiable
         0
     endif
@@ -70,12 +74,22 @@ function! s:syntax_update()
     execute '!echo "" > /tmp/vim-macaulay2;echo "" > /tmp/vim-macaulay2-syntax.vim;'
     " call writefile(['for x in Core#"exported symbols" do (if not member(toString x, set{"[","]","{","}","\\","^","_","|","~"}) then << "syn keyword M2" << class value x << " " << x << endl);'], glob('/tmp/vim-macaulay2'), 'a')
     for pkg in split(b:macaulay2_env,',')
-        call writefile(['try(pkg = needsPackage "'.pkg.'";<< "if match(b:macaulay2_env, ''\\C'.pkg.''') != -1\nsyn keyword M2Type";for x in pkg#"exported symbols" do ( if class value x === Type then << " " << x;);<< " .\nsyn keyword M2Function";for x in pkg#"exported symbols" do ( if member(class value x,set{MethodFunction,MethodFunctionSingle,MethodFunctionBinary,MethodFunctionWithOptions}) then << " " << x;);<< " .\nsyn keyword M2Symbol";for x in pkg#"exported symbols" do ( if class value x === Symbol then << " " << x;);<<" .\nendif\n";);'], glob('/tmp/vim-macaulay2'), 'a')
+        call writefile(['try(','    pkg = needsPackage "'.pkg.'";',
+          \ '    << "if match(b:macaulay2_env, ''\\C'.pkg.''') != -1\n\tsyn keyword M2Symbol";',
+          \ '    for x in pkg#"exported symbols" do (',
+          \ '        if not instance(value x, Type) and not instance(value x, Function) then << " " << x;','    );',
+          \ '    << " .\n\tsyn keyword M2Function";',
+          \ '    for x in pkg#"exported symbols" do (',
+          \ '        if instance(value x, Function) then << " " << x;','    );',
+          \ '    << " .\n\tsyn keyword M2Datatype";',
+          \ '    for x in pkg#"exported symbols" do (',
+          \ '        if instance(value x, Type) then << " " << x;','    );',
+          \ '    << " .\nendif\n";',');'], glob('/tmp/vim-macaulay2'), 'a')
     endfor
     if has('nvim')
-        call jobstart(g:M2_bin.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;', {'on_exit':{j,d,e->s:syntax_reload()}})
+        call jobstart(g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;', {'on_exit':{j,d,e->s:syntax_reload()}})
     else
-        let s:job=job_start('sh -c "'.g:M2_bin.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;"' , {'exit_cb':{j,s->s:syntax_reload()}})
+        let s:job=job_start('sh -c "'.g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;"' , {'exit_cb':{j,s->s:syntax_reload()}})
     endif
 endfunction
 
@@ -88,7 +102,7 @@ function! s:syntax_reload()
 endfunction
 
 function! macaulay2#test()
-    call s:syntax_update()
+    echo b:macaulay2_env
 endfunction
 
 function! macaulay2#env_update()
@@ -97,12 +111,17 @@ function! macaulay2#env_update()
             let old_env = b:macaulay2_env
         endif
         let b:macaulay2_env = ""
+        let pkgs = []
+        let ptn = '^\(\(--\)\@!.\)*\<\%(load\|needs\)Package\(\(--\)\@!.\)\{-}\"\zs[^"]\+\ze\"'
         for line in getline(1, '$')
-            let pkg = matchstr(line,'^\(\(--\)\@!.\)*\<\%(load\|needs\)Package.*\"\zs.\+\ze\"')
-            if pkg != ""
-                let b:macaulay2_env = join(uniq(sort(split(b:macaulay2_env, ',')+[pkg])),',')
-            endif
+            let pkg = matchstr(line, ptn)
+            while pkg != ""
+                call add(pkgs, pkg)
+                let line = substitute(line, '"'.pkg.'"', '', '')
+                let pkg = matchstr(line, ptn)
+            endwhile
         endfor
+        let b:macaulay2_env = join(uniq(sort(split(b:macaulay2_env, ',')+pkgs)),',')
         if exists("old_env")
             if b:macaulay2_env != old_env
                 call s:syntax_update()
@@ -129,3 +148,10 @@ if exists(":AirlineRefresh")
     call airline#add_statusline_func('AirlineM2help')
 endif
 
+function! macaulay2#generate_symbols()
+    if has('nvim')
+        call jobstart("cd ".s:current_file."/../syntax/; ".g:M2." --script make-M2-symbols.m2;", {'on_exit':{j,d,e->s:syntax_reload()}})
+    else
+        let s:job=job_start('sh -c "cd '.s:current_file.'/../syntax/; '.g:M2.' --script make-M2-symbols.m2;"', {'exit_cb':{j,s->s:syntax_reload()}})
+    endif
+endfunction
