@@ -47,7 +47,7 @@ function! macaulay2#show_help(name,env)
     let b:macaulay2_env = a:env
     setlocal filetype=M2help
     let setwidth = 'printWidth = '.winwidth('%').';\n'
-    let preamble = 'try needsPackage \\ (\"'.join(split(a:env,','), '\", \"').'\");\n'
+    let preamble = 'try needsPackage \\ {\"'.join(split(a:env,','), '\", \"').'\"};\n'
     if empty(substitute(a:name,'\s\|\t','','g'))
         let str = '<< help()'
     " elseif match(a:name, ',') == -1
