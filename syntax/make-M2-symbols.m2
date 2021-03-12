@@ -59,6 +59,8 @@ FUNCTIONS = first \ select(symbols, isFunction)
 CONSTANTS = first \ select(symbols, isConst)
 CONSTANTS = CONSTANTS | {"Node", "Item", "Example", "CannedExample", "Pre", "Code", "Tree", "Synopsis"} -- SimpleDoc words
 CONSTANTS = sort CONSTANTS
+docKeywords = {"Headline", "Caveat"}
+CONSTANTS = select(CONSTANTS, x -> (not member(x, docKeywords)))
 STRINGS   = format "///\\\\(/?/?[^/]\\\\|\\\\(//\\\\)*////[^/]\\\\)*\\\\(//\\\\)*///"
 
 -------------------------------------------------------------------------------

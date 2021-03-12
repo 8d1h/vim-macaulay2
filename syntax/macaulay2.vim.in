@@ -30,7 +30,17 @@ syn region M2String start=+"+ end=+"+ skip=+\\|\"+ contains=M2EscapeBackslash,M2
 syn match M2String "\/\{3,}"
 " it seems that this syntax is usually used for TEST commands, so maybe syntax
 " highlight is still needed
-" syn region M2String start="///" end="\(//\)*///" skip="/\=/\=/\@!\|\(//\)*/////\@!" contains=@spell
+" syn region M2StringBlock start="///" end="\(//\)*///" skip="/\=/\=/\@!\|\(//\)*/////\@!" contains=ALL,@spell
+syn region M2Doc start="^\(Headline\|Caveat\)$" skip="\n\s" end="\n" contains=@spell,M2DocHeadline,M2DocLink,M2DocStylized
+syn region M2Doc start="^ \(\(Text\)\|\(\(\w\|'\)*:.*\)\|\(\(\w\|'\)\+=>.*\)\)$" skip="\n\s\s.*$" end="\n" contains=@spell,M2DocHeadline,M2DocInputs,M2DocLink,M2DocStylized
+syn keyword M2Symbol Caveat Headline contained
+syn match M2DocLink contained "@\(\n\|[^@]\)\+@" contains=M2Keyword,M2Datatype,M2Function,M2Symbol
+syn match M2DocStylized contained "{\\\(tt\|em\|bf\)\(\n\|[^}]\)\+}"
+syn match M2DocHeadline contained "^\s*\zs\(Text\|Headline\|Caveat\)$" contains=M2Symbol
+syn match M2DocInputs contained "^ \(\w\|'\)*:.*$" contains=M2Keyword,M2Datatype,M2Function,M2Symbol
+syn match M2DocInputs contained "^ \(\w\|'\)\+=>.*$" contains=M2Keyword,M2Datatype,M2Function,M2Symbol
+hi M2Doc ctermfg=Gray guifg=Gray
+hi M2DocStylized ctermfg=DarkGray guifg=DarkGray
 
 " number: integers and floats
 syn match M2Integer "\<\d\+\(_\a\+\)\=\>"
