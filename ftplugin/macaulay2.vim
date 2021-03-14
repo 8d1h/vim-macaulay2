@@ -25,64 +25,73 @@ nnoremap <buffer> <silent> <localleader>r :exec 'w !'.g:M2.' --script %'<cr>
 " upper S opens a clean M2 shell
 nnoremap <buffer> <silent> <localleader>s :M2Shell<cr>
 nnoremap <buffer> <silent> <localleader>S :M2ShellClean<cr>
-if has('nvim')
-    " in nvim, <Enter> sends the current line / selected lines to the shell
-    nnoremap <buffer> <silent> <cr> :call macaulay2#send_code(getline("."))<cr><cr>
-    nnoremap <buffer> <silent> <a-cr> :call macaulay2#send_code(getline("."))<cr>
-    vnoremap <buffer> <silent> <cr> "*y:call macaulay2#send_code(@*)<cr><cr>
-    " <alt-r> restart the M2 shell (<ctrl-r> conflits with redo)
-    nnoremap <buffer> <silent> <a-r> :call macaulay2#send_code("restart\n")<cr>
-    " record the shell buffer number and the parent (M2 script) for each shell_id
-    let s:M2shell_bufnrs = {}
-    let s:M2shell_parents = {}
-    " <leader>p enters the emacs-like presentation mode
-    command -buffer M2Presentation :call macaulay2#init_shell(g:M2) | setlocal bufhidden=hide | close
-    nnoremap <buffer> <silent> <localleader>p :M2Presentation<cr>
+" <Enter> sends the current line / selected lines to the shell
+nnoremap <buffer> <silent> <cr> :call macaulay2#send_code(getline("."))<cr><cr>
+vnoremap <buffer> <silent> <cr> "ky:call macaulay2#send_code(@k)<cr><cr>
+" <alt-Enter> does the same without moving to the next line
+if !has('nvim')
+    exec "set <a-cr>=\<esc>\<cr>"
 endif
+nnoremap <buffer> <silent> <a-cr> :call macaulay2#send_code(getline("."))<cr>
+" <f5> restart the M2 shell (<ctrl-r> conflits with redo)
+nnoremap <buffer> <silent> <f5> :call macaulay2#send_code("restart\n")<cr>
+" <leader>p enters the emacs-like presentation mode
+nnoremap <buffer> <silent> <localleader>p :M2Presentation<cr>
+nnoremap <buffer> <silent> <localleader>; A<tab>-- 
 
 " pack some of the functionalities as commands
+command -buffer M2Presentation :call macaulay2#init_shell(g:M2) | setlocal bufhidden=hide | close | start
 command -buffer M2Shell :write | exec macaulay2#init_shell(g:M2.' '.@%) "wincmd w" | start
 command -buffer M2ShellClean :exec macaulay2#init_shell(g:M2) "wincmd w" | start
 command -buffer M2GenerateSymbols :call macaulay2#generate_symbols()
 
+" record the shell buffer number and the parent (M2 script) for each shell_id
+let s:M2shell_bufnrs = {}
+let s:M2shell_parents = {}
+
 function! macaulay2#init_shell(cmd)
-    if !has('nvim') " under vim only a shell is created
-        exec 'vert rightb term '.a:cmd
-    else
-        let parent_win = winnr()
-        let parent_buf = bufnr()
-        let env = b:macaulay2_env
-        " split and create the shell
-        exec "rightb vnew"
-        let job = termopen(a:cmd, {'on_exit': function('s:M2shell_exit')})
-        let s:M2shell_bufnrs[job] = bufnr()
-        let s:M2shell_parents[job] = parent_buf
-        let shell_win = winnr()
-        let b:parent_buf = parent_buf
-        let b:macaulay2_env = env
-        setlocal filetype=M2shell
-        " switch back to the script
-        exec parent_win "wincmd w"
-        let b:M2shell_job = job
-        return shell_win
+    let parent_win = winnr()
+    let parent_buf = bufnr()
+    let env = b:macaulay2_env
+    exec "rightb vnew"
+    if has('nvim') " nvim returns a unique job number
+        let job = termopen(a:cmd, {'on_exit': {j,d,e->s:M2shell_exit(j)}})
+    elseif has('terminal') " vim only returns the buffer number
+        let job = term_start(a:cmd, {'curwin': 1, 'term_finish': 'open', 'exit_cb': {j,s->s:M2shell_exit(0)}})
     endif
+    let s:M2shell_bufnrs[job] = bufnr()
+    let s:M2shell_parents[job] = parent_buf
+    let shell_win = winnr()
+    let b:parent_buf = parent_buf
+    let b:macaulay2_env = env
+    setlocal filetype=M2shell
+    " switch back to the script
+    exec parent_win "wincmd w"
+    let b:M2shell_job = job
+    return shell_win
 endfunction
 
-function! s:M2shell_exit(job,d,e)
+function! s:M2shell_exit(job)
+    if has('nvim') 
+        let job = a:job
+        let M2shell_buf = s:M2shell_bufnrs[job]
+    else
+        let job = bufnr()
+        let M2shell_buf = bufnr()
+    endif
     " delete the buffer of the shell if it still exists
-    let M2shell_buf = s:M2shell_bufnrs[a:job]
     if bufexists(M2shell_buf)
         exec M2shell_buf "bd!"
     endif
     " switch back to the script and clean the refs
     let buf = bufnr()
-    exec s:M2shell_parents[a:job] "b"
+    exec s:M2shell_parents[job] "b"
     if exists("b:M2shell_job")
         unlet b:M2shell_job
     endif
     exec buf "b"
-    call remove(s:M2shell_bufnrs, a:job)
-    call remove(s:M2shell_parents, a:job)
+    call remove(s:M2shell_bufnrs, job)
+    call remove(s:M2shell_parents, job)
 endfunction
 
 function! macaulay2#send_code(code)
@@ -103,9 +112,15 @@ function! macaulay2#send_code(code)
         " at this point the job and its buffer must both exist
         let job = b:M2shell_job
         let buf = s:M2shell_bufnrs[job]
-        for line in non_empty
-            call chansend(job, line."\n")
-        endfor
+        if has('nvim')
+            for line in non_empty
+                call chansend(job, line."\n")
+            endfor
+        else
+            for line in non_empty
+                call term_sendkeys(buf, line."\n")
+            endfor
+        endif
         " set b:macaulay2_env and scroll the screen to bottom
         let parent_win = winnr()
         let env = b:macaulay2_env
@@ -165,19 +180,22 @@ function! macaulay2#show_help(name)
     let b:macaulay2_env = env
     let b:help_entry = a:name
     setlocal filetype=M2help
-    let preamble = 'printWidth = '.winwidth('%').';\n'
+    let preamble = ['printWidth = '.winwidth('%').';']
     for pkg in split(env,',')
-        let preamble=preamble.'try needsPackage \"'.pkg.'\";\n'
+        call add(preamble,'try needsPackage "'.pkg.'";')
     endfor
+    call writefile(preamble, glob('/tmp/vim-macaulay2'))
     if empty(substitute(a:name,'\s','','g'))
-        let str = '<< help()'
+        call writefile(['<< help()'], glob('/tmp/vim-macaulay2'),'a')
     else
-        let str = '<< help \"'.a:name.'\"'
+        let name = substitute(a:name,'\','\\\\','g')
+        let name = substitute(name,'"','\\"','g')
+        call writefile(['<< help "'.name.'"'], glob('/tmp/vim-macaulay2'),'a')
     endif
     if bufname() == "M2help-".bufnr() " check bufname before deletion!!!
         setlocal modifiable
         %delete
-        silent! exec '0$read !echo "'.preamble.str.'" > /tmp/vim-macaulay2; '.g:M2.' --script /tmp/vim-macaulay2;'
+        silent! exec '0$read !'.g:M2.' --script /tmp/vim-macaulay2;'
         setlocal nomodifiable
         0 " this moves cursor to top
     endif
@@ -283,8 +301,9 @@ function! macaulay2#test()
     echon b:macaulay2_env
     echo "M2help buffers: "
     echon s:M2help_bufs
-    if has('nvim')
-        echo "M2shell jobs and their parents: "
-        echon s:M2shell_parents
-    endif
+    echo "M2shell jobs and their parents: "
+    echon s:M2shell_parents
+endfunction
+function! macaulay2#print(x)
+    echo a:x
 endfunction

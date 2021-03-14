@@ -4,14 +4,17 @@ endif
 let b:did_ftplugin = 1
 
 " upper K yanks the word to the quotestar register then calls the help function
-nnoremap <buffer> <silent> K "*yiw:call macaulay2#show_help(@*)<cr>
-vnoremap <buffer> <silent> K "*y:call macaulay2#show_help(@*)<cr>
+nnoremap <buffer> <silent> K "kyiw:call macaulay2#show_help(@k)<cr>
+vnoremap <buffer> <silent> K "ky:call macaulay2#show_help(@k)<cr>
 " <leader>K requires user input
 nnoremap <buffer> <silent> <localleader>K :call macaulay2#show_help(input('Help for: '))<cr>
-" normal mode: map <Enter> and <f11>
+" normal mode: map <Enter> and <F11>
 nnoremap <buffer> <silent> <cr> :call M2shell#present_mode(1)<cr>a<c-\><c-n>
 nnoremap <buffer> <silent> <f11> :call M2shell#present_mode(1)<cr>a<c-\><c-n>
-" insert mode: map <alt+Enter> and <f11>
+" insert mode: map <alt+Enter> and <F11>
+if !has('nvim')
+    exec "set <a-cr>=\<esc>\<cr>"
+endif
 tnoremap <buffer> <silent> <a-cr> <c-\><c-n>:call M2shell#present_mode(0)<cr>a
 tnoremap <buffer> <silent> <f11> <c-\><c-n>:call M2shell#present_mode(0)<cr>a
 " reload using <ctrl-r>
@@ -21,13 +24,17 @@ tnoremap <buffer> <silent> <c-r> <c-\><c-n>:let b:present_line=1<cr>a
 " check that current line has no input
 function! s:no_input()
     let line = getline('.')
-    return match(line, '^\(i\+\d\+ :\|\s*\)$') == 0
+    return match(line, '^\(i\+\d\+ :\s*\|\s*\)$') == 0
 endfunction
 
 function! M2shell#present_mode(is_normal_mode)
     if !a:is_normal_mode && !s:no_input()
         " terminal mode with input => type Enter once
-        call chansend(b:terminal_job_id, "\n")
+        if has('nvim')
+            call chansend(b:terminal_job_id, "\n")
+        else
+            call term_sendkeys(bufnr(), "\n")
+        end
         return
     endif
     if !exists("b:present_line")
@@ -47,7 +54,11 @@ function! M2shell#present_mode(is_normal_mode)
     if a:is_normal_mode
         let line = line."\n"
     endif
-    call chansend(b:terminal_job_id, line)
+    if has('nvim')
+        call chansend(b:terminal_job_id, line)
+    else
+        call term_sendkeys(bufnr(), line)
+    end
     syn sync fromstart
 endfunction
     
