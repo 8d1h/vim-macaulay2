@@ -8,30 +8,46 @@ nnoremap <buffer> <silent> K "*yiw:call macaulay2#show_help(@*)<cr>
 vnoremap <buffer> <silent> K "*y:call macaulay2#show_help(@*)<cr>
 " <leader>K requires user input
 nnoremap <buffer> <silent> <localleader>K :call macaulay2#show_help(input('Help for: '))<cr>
-nnoremap <buffer> <silent> <cr> :call M2shell#present_mode()<cr>
+" normal mode: map <Enter> and <f11>
+nnoremap <buffer> <silent> <cr> :call M2shell#present_mode(1)<cr>a<c-\><c-n>
+nnoremap <buffer> <silent> <f11> :call M2shell#present_mode(1)<cr>a<c-\><c-n>
+" insert mode: map <alt+Enter> and <f11>
+tnoremap <buffer> <silent> <a-cr> <c-\><c-n>:call M2shell#present_mode(0)<cr>a
+tnoremap <buffer> <silent> <f11> <c-\><c-n>:call M2shell#present_mode(0)<cr>a
+" reload using <ctrl-r>
 nnoremap <buffer> <silent> <c-r> :let b:present_line=1<cr>
-imap <buffer> <silent> <a-cr> :call M2shell#present_mode()<cr>
+tnoremap <buffer> <silent> <c-r> <c-\><c-n>:let b:present_line=1<cr>a
 
-function! M2shell#present_mode()
+" check that current line has no input
+function! s:no_input()
+    let line = getline('.')
+    return match(line, '^\(i\+\d\+ :\|\s*\)$') == 0
+endfunction
+
+function! M2shell#present_mode(is_normal_mode)
+    if !a:is_normal_mode && !s:no_input()
+        " terminal mode with input => type Enter once
+        call chansend(b:terminal_job_id, "\n")
+        return
+    endif
     if !exists("b:present_line")
         let b:present_line = 1
     endif
-    let l = b:present_line
-    let shell_win = win_getid()
-    if win_gotoid(b:parent_win) == 0 " the parent (M2 script) window is not visible
-        exec b:parent_buf "sb"
-        let clean_up = winnr()
+    let line = getbufline(b:parent_buf, b:present_line)
+    if line == []
+        let line = "-- end of buffer ".bufname(b:parent_buf)
+    else
+        let line = line[0]
+        let b:present_line += 1
+        if line == "" " if the line is empty, do the next line
+            call M2shell#present_mode(a:is_normal_mode)
+            return
+        endif
     endif
-    let line = getline(l)
-    call chansend(b:M2shell_job, line."\n")
-    exec win_gotoid(shell_win)
-    if exists("clean_up")
-        exec clean_up "close" 
-        unlet clean_up
+    if a:is_normal_mode
+        let line = line."\n"
     endif
-    let b:present_line += 1
-    normal! G
-    " exec "startinsert"
-    " exec "stopinsert"
+    call chansend(b:terminal_job_id, line)
+    syn sync fromstart
 endfunction
     

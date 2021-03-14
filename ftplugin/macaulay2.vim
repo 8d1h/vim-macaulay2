@@ -14,67 +14,75 @@ let s:current_file=expand("<sfile>:p:h")
 setlocal omnifunc=syntaxcomplete#Complete
 let g:omni_syntax_group_include_macaulay2 = 'M2Keyword,M2Datatype,M2Function,M2Symbol'
 
-" upper K yanks the word to the quotestar register then calls the help function
-nnoremap <buffer> <silent> K "*yiw:call macaulay2#show_help(@*)<cr>
-vnoremap <buffer> <silent> K "*y:call macaulay2#show_help(@*)<cr>
+" upper K yanks the word to the register k then calls the help function
+nnoremap <buffer> <silent> K "kyiw:call macaulay2#show_help(@k)<cr>
+vnoremap <buffer> <silent> K "ky:call macaulay2#show_help(@k)<cr>
 " <leader>K requires user input
 nnoremap <buffer> <silent> <localleader>K :call macaulay2#show_help(input('Help for: '))<cr>
-" <leader>p enters the emacs-like presentation mode
-nnoremap <buffer> <silent> <localleader>p :call macaulay2#init_shell(g:M2)<cr>:set hidden<cr>:close<cr>
 " r runs the script
 nnoremap <buffer> <silent> <localleader>r :exec 'w !'.g:M2.' --script %'<cr>
 " lower s opens an M2 shell and preloads the script
 " upper S opens a clean M2 shell
-nnoremap <buffer> <silent> <localleader>s :w<cr>:call macaulay2#init_shell(g:M2.' '.@%)<cr>
-nnoremap <buffer> <silent> <localleader>S :call macaulay2#init_shell(g:M2)<cr>
-" in nvim, `return` sends the current line / selected lines to the shell
+nnoremap <buffer> <silent> <localleader>s :M2Shell<cr>
+nnoremap <buffer> <silent> <localleader>S :M2ShellClean<cr>
 if has('nvim')
+    " in nvim, <Enter> sends the current line / selected lines to the shell
     nnoremap <buffer> <silent> <cr> :call macaulay2#send_code(getline("."))<cr><cr>
     nnoremap <buffer> <silent> <a-cr> :call macaulay2#send_code(getline("."))<cr>
     vnoremap <buffer> <silent> <cr> "*y:call macaulay2#send_code(@*)<cr><cr>
+    " <alt-r> restart the M2 shell (<ctrl-r> conflits with redo)
+    nnoremap <buffer> <silent> <a-r> :call macaulay2#send_code("restart\n")<cr>
     " record the shell buffer number and the parent (M2 script) for each shell_id
     let s:M2shell_bufnrs = {}
     let s:M2shell_parents = {}
+    " <leader>p enters the emacs-like presentation mode
+    command -buffer M2Presentation :call macaulay2#init_shell(g:M2) | setlocal bufhidden=hide | close
+    nnoremap <buffer> <silent> <localleader>p :M2Presentation<cr>
 endif
+
+" pack some of the functionalities as commands
+command -buffer M2Shell :write | exec macaulay2#init_shell(g:M2.' '.@%) "wincmd w" | start
+command -buffer M2ShellClean :exec macaulay2#init_shell(g:M2) "wincmd w" | start
+command -buffer M2GenerateSymbols :call macaulay2#generate_symbols()
 
 function! macaulay2#init_shell(cmd)
     if !has('nvim') " under vim only a shell is created
         exec 'vert rightb term '.a:cmd
     else
-        let code_win = win_getid()
-        let code_buf = bufnr()
+        let parent_win = winnr()
+        let parent_buf = bufnr()
         let env = b:macaulay2_env
         " split and create the shell
-        exec "belowright vnew"
-        let M2shell_job = termopen(a:cmd, {'on_exit': function('s:M2shell_exit')})
-        let M2shell_win = win_getid()
-        let s:M2shell_bufnrs[M2shell_job] = bufnr()
-        let s:M2shell_parents[M2shell_job] = code_win
-        let b:parent_win = code_win
-        let b:parent_buf = code_buf
-        let b:macaulay2_env=env
+        exec "rightb vnew"
+        let job = termopen(a:cmd, {'on_exit': function('s:M2shell_exit')})
+        let s:M2shell_bufnrs[job] = bufnr()
+        let s:M2shell_parents[job] = parent_buf
+        let shell_win = winnr()
+        let b:parent_buf = parent_buf
+        let b:macaulay2_env = env
         setlocal filetype=M2shell
         " switch back to the script
-        exec win_id2win(code_win) "wincmd w"
-        let b:M2shell_job = M2shell_job
-        let b:M2shell_win = M2shell_win
+        exec parent_win "wincmd w"
+        let b:M2shell_job = job
+        return shell_win
     endif
 endfunction
 
-function! s:M2shell_exit(M2shell_job,d,e)
+function! s:M2shell_exit(job,d,e)
     " delete the buffer of the shell if it still exists
-    let M2shell_buf = s:M2shell_bufnrs[a:M2shell_job]
+    let M2shell_buf = s:M2shell_bufnrs[a:job]
     if bufexists(M2shell_buf)
         exec M2shell_buf "bd!"
     endif
     " switch back to the script and clean the refs
-    exec win_id2win(s:M2shell_parents[a:M2shell_job]) "wincmd w"
+    let buf = bufnr()
+    exec s:M2shell_parents[a:job] "b"
     if exists("b:M2shell_job")
         unlet b:M2shell_job
     endif
-    if exists("b:M2shell_win")
-        unlet b:M2shell_win
-    endif
+    exec buf "b"
+    call remove(s:M2shell_bufnrs, a:job)
+    call remove(s:M2shell_parents, a:job)
 endfunction
 
 function! macaulay2#send_code(code)
@@ -82,7 +90,7 @@ function! macaulay2#send_code(code)
         let lines = split(a:code, "\n")
         let non_empty = []
         for line in lines
-            if substitute(line, '\(\s\|\t\)*\(--.*\)\?$', '', 'g') != ''
+            if substitute(line, '\s*\(--.*\)\?$', '', 'g') != ''
                 call add(non_empty, line)
             endif
         endfor
@@ -92,23 +100,38 @@ function! macaulay2#send_code(code)
         if !exists("b:M2shell_job")
             call macaulay2#init_shell(g:M2)
         endif
+        " at this point the job and its buffer must both exist
+        let job = b:M2shell_job
+        let buf = s:M2shell_bufnrs[job]
         for line in non_empty
-            call chansend(b:M2shell_job, line."\n")
+            call chansend(job, line."\n")
         endfor
         " set b:macaulay2_env and scroll the screen to bottom
-        let code_win = win_getid()
+        let parent_win = winnr()
         let env = b:macaulay2_env
-        if win_gotoid(b:M2shell_win) == 1
-            let b:macaulay2_env=env
-            setlocal filetype=M2shell
-            unlet g:loaded_syntax_completion
-            runtime autoload/syntaxcomplete.vim
-            normal! G
-            exec win_id2win(code_win) "wincmd w"
+        let wins = map(win_findbuf(buf), {k,v->win_id2win(v)})
+        let win = 0
+        for w in wins
+            if w > 0
+                exec w "wincmd w"
+                let win = w
+                break
+            endif
+        endfor
+        if win == 0 " the shell is not visible on the tab
+            exec "vert rightb" buf "sb"
         endif
+        let b:macaulay2_env = env
+        setlocal filetype=M2shell
+        unlet g:loaded_syntax_completion
+        runtime autoload/syntaxcomplete.vim
+        normal! G
+        " switch back to parent window
+        exec parent_win "wincmd w"
     endif
 endfunction
 
+let s:M2help_bufs = []
 function! macaulay2#show_help(name)
     if exists("b:macaulay2_env")
         let env = b:macaulay2_env
@@ -117,32 +140,44 @@ function! macaulay2#show_help(name)
         let env = ''
     endif
     if &ft == "macaulay2" || &ft == "M2shell"
-        let wnr = bufwinnr("M2help")
-        let bnr = bufnr("M2help")
-        if wnr >= 0
-            exec wnr "wincmd w"
-        elseif bnr >= 0
-            exec bnr "sb"
-        else
+        let win = 0
+        let idx = 0
+        for buf in s:M2help_bufs
+            if !bufexists(buf)
+                call remove(s:M2help_bufs, idx)
+                continue
+            endif
+            if bufwinnr(buf) > 0
+                let win = bufwinnr(buf)
+                break
+            endif
+            let idx += 1
+        endfor
+        if win > 0
+            exec win "wincmd w"
+        else 
             new
             setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile nowrap nonumber norelativenumber 
-            file M2help
+            exec "file M2help-".bufnr()
+            call add(s:M2help_bufs, bufnr())
         endif
     endif
     let b:macaulay2_env = env
     let b:help_entry = a:name
     setlocal filetype=M2help
-    let setwidth = 'printWidth = '.winwidth('%').';\n'
-    let preamble = 'try needsPackage \\ {\"'.join(split(env,','), '\", \"').'\"};\n'
-    if empty(substitute(a:name,'\s\|\t','','g'))
+    let preamble = 'printWidth = '.winwidth('%').';\n'
+    for pkg in split(env,',')
+        let preamble=preamble.'try needsPackage \"'.pkg.'\";\n'
+    endfor
+    if empty(substitute(a:name,'\s','','g'))
         let str = '<< help()'
     else
         let str = '<< help \"'.a:name.'\"'
     endif
-    if bufname() == "M2help" " check bufname before deletion!!!
+    if bufname() == "M2help-".bufnr() " check bufname before deletion!!!
         setlocal modifiable
         %delete
-        silent! exec '0$read !echo "'.setwidth.preamble.str.'" > /tmp/vim-macaulay2; '.g:M2.' --script /tmp/vim-macaulay2;'
+        silent! exec '0$read !echo "'.preamble.str.'" > /tmp/vim-macaulay2; '.g:M2.' --script /tmp/vim-macaulay2;'
         setlocal nomodifiable
         0 " this moves cursor to top
     endif
@@ -171,14 +206,17 @@ function! s:syntax_update()
     endfor
     " calling M2 is slow so we use async
     if has('nvim')
-        call jobstart(g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;', {'on_exit':{j,d,e->s:syntax_reload()}})
+        call jobstart(g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;', {'on_exit':{j,d,e->s:syntax_reload(0)}})
     else
-        let s:job=job_start('sh -c "'.g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;"' , {'exit_cb':{j,s->s:syntax_reload()}})
+        let s:job=job_start('sh -c "'.g:M2.' --script /tmp/vim-macaulay2 > /tmp/vim-macaulay2-syntax.vim;"' , {'exit_cb':{j,s->s:syntax_reload(0)}})
     endif
 endfunction
 
 " .vim file is generated, needs to be reloaded
-function! s:syntax_reload()
+function! s:syntax_reload(notify)
+    if a:notify
+        echo "macaulay2.vim syntax file has been generated"
+    endif
     setlocal filetype=macaulay2
     if exists("g:loaded_syntax_completion")
         unlet g:loaded_syntax_completion
@@ -186,7 +224,7 @@ function! s:syntax_reload()
     runtime autoload/syntaxcomplete.vim
 endfunction
 
-function! macaulay2#env_update()
+function! s:env_update()
     if &filetype == "macaulay2" 
         if exists("b:macaulay2_env")
             let old_env = b:macaulay2_env
@@ -214,7 +252,7 @@ function! macaulay2#env_update()
 endfunction
 
 " update env
-au BufEnter,TextChanged,InsertLeave *.m2 silent call macaulay2#env_update()
+au BufEnter,TextChanged,InsertLeave *.m2 silent call s:env_update()
 
 if exists(":AirlineRefresh")
     function! AirlineM2help(...)
@@ -231,9 +269,9 @@ endif
 function! macaulay2#generate_symbols()
     if &filetype == "macaulay2" 
         if has('nvim')
-            call jobstart("cd ".s:current_file."/../syntax/; ".g:M2." --script make-M2-symbols.m2;", {'on_exit':{j,d,e->s:syntax_reload()}})
+            call jobstart("cd ".s:current_file."/../syntax/; ".g:M2." --script make-M2-symbols.m2;", {'on_exit':{j,d,e->s:syntax_reload(1)}})
         else
-            let s:job=job_start('sh -c "cd '.s:current_file.'/../syntax/; '.g:M2.' --script make-M2-symbols.m2;"', {'exit_cb':{j,s->s:syntax_reload()}})
+            let s:job=job_start('sh -c "cd '.s:current_file.'/../syntax/; '.g:M2.' --script make-M2-symbols.m2;"', {'exit_cb':{j,s->s:syntax_reload(1)}})
         endif
     endif
 endfunction
@@ -241,7 +279,12 @@ endfunction
 " test function for printing values
 function! macaulay2#test()
     echo "Hello there!"
-    echo b:M2shell_id
-    echo b:M2shell_nr
-    echo s:M2shell_parents
+    echo "b:macaulay2_env="
+    echon b:macaulay2_env
+    echo "M2help buffers: "
+    echon s:M2help_bufs
+    if has('nvim')
+        echo "M2shell jobs and their parents: "
+        echon s:M2shell_parents
+    endif
 endfunction

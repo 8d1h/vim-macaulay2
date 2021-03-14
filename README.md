@@ -39,17 +39,24 @@ highlighting is available for the shell.
 Also there is now an emacs-like "presentation mode": use `<localleader>p` in a
 script will open a new shell in fullscreen for presentation. The lines in the
 script will be sent one-by-one to the shell for evaluation by repeatedly typing
-`Enter` (`<ctrl-r>` will "reload" the presentation to start from the
-beginning).
+`Enter` in normal mode and `<alt-Enter>` in insert mode (`<F11>` is also
+supported following emacs, thought usually it is already mapped to toggling
+fullscreen). Typing `<ctrl-r>` will "reload" the presentation to start from
+the beginning.
 
 ## List of commands
 * `K` shows help for the command under cursor
 * `<localleader>K` shows help for the command typed in
 * `<localleader>r` saves and runs the current script
-* `<localleader>s` opens an M2 shell and preloads the script
-* `<localleader>S` opens a clean M2 shell
-* `<Enter>` sends a line to the M2 shell for evaluation
-* `<localleader>p` evokes the "presentation mode": the lines are displayed
-  one-by-one by typing `<Enter>` in normal mode in the terminal buffer.
+* `<Enter>` sends code to the M2 shell for evaluation
+* `:M2Shell` (mapped to `<localleader>s`) opens an M2 shell and preloads the
+  script
+* `:M2ShellClean` (mapped to `<localleader>S`) opens a clean M2 shell
+* `:M2Presentation` (mapped to `<localleader>p`) evokes the "presentation
+  mode": the lines are displayed one-by-one by typing `<Enter>` in normal mode
+  and `<alt-Enter>` in insert mode (or `<F11>`) in the terminal buffer. Type
+  `<ctrl-r>` to reload the presentation.
+* `:M2GenerateSymbols` regenerates the core symbols used in syntax
+  highlighting.
 
-![](screenshot.png)
+[![](screenshot.png)](https://github.com/8d1h/vim-macaulay2/blob/master/screenshot.png?raw=true)
